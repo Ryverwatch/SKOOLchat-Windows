@@ -52,4 +52,3 @@ shortcut: right-click the exe, choose **Send to > Desktop (create shortcut)**.
   that sets the icon, product name and version.
 - **Installer:** use Inno Setup or WiX to wrap the exe and create a Start Menu/desktop shortcut.
 - **Loading/splash screen:** show a small borderless window or HTML page while the site loads.
-
