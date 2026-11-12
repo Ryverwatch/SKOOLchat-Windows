@@ -97,7 +97,7 @@ fn main() {
     let mut context = WebContext::new(Some(data_dir()));
 
     // Load the site immediately (no blocking network check before startup).
-    let webview = WebViewBuilder::new_with_web_context(&mut context)
+       let webview = WebViewBuilder::with_web_context(&mut context)
         .with_url(SITE_URL)
         .with_background_color((255, 255, 255, 255))
         .with_ipc_handler(move |req| {
