@@ -98,6 +98,14 @@ fn is_internal(url: &str) -> bool {
 /// Open a link in the user's default browser (no console window flashes).
 fn open_in_default_browser(url: &str) {
     use std::os::windows::process::CommandExt;
+    // Safety: only ever hand web, mail and phone links to Windows.
+    let ok = url.starts_with("http://")
+        || url.starts_with("https://")
+        || url.starts_with("mailto:")
+        || url.starts_with("tel:");
+    if !ok {
+        return;
+    }
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let _ = std::process::Command::new("rundll32")
         .args(["url.dll,FileProtocolHandler", url])
@@ -110,6 +118,46 @@ fn window_icon() -> Option<tao::window::Icon> {
     const RGBA: &[u8] = include_bytes!("../icon_64.rgba");
     tao::window::Icon::from_rgba(RGBA.to_vec(), 64, 64).ok()
 }
+
+
+const LINK_SCRIPT: &str = r#"
+(function () {
+  function external(u) {
+    try {
+      var x = new URL(u, location.href);
+      if (['http:', 'https:', 'mailto:', 'tel:'].indexOf(x.protocol) < 0) return null;
+      var h = x.hostname.toLowerCase();
+      if (h === 'figma.site' || h.endsWith('.figma.site') ||
+          h === 'figma.com' || h.endsWith('.figma.com')) return null;
+      return x.href;
+    } catch (e) { return null; }
+  }
+  function web(u) {
+    try {
+      var x = new URL(u, location.href);
+      if (['http:', 'https:', 'mailto:', 'tel:'].indexOf(x.protocol) < 0) return null;
+      return x.href;
+    } catch (e) { return null; }
+  }
+  document.addEventListener('click', function (e) {
+    var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+    if (!a) return;
+    var u = external(a.href);
+    if (!u && a.target === '_blank') u = web(a.href);
+    if (u) {
+      e.preventDefault();
+      e.stopPropagation();
+      window.ipc.postMessage('open:' + u);
+    }
+  }, true);
+  var realOpen = window.open;
+  window.open = function (u) {
+    var x = u ? web(u) : null;
+    if (x) { window.ipc.postMessage('open:' + x); return null; }
+    return null;
+  };
+})();
+"#;
 
 /// Check the connection in the background; show the offline page only if it fails.
 fn check_in_background(proxy: tao::event_loop::EventLoopProxy<UserEvent>) {
@@ -151,16 +199,17 @@ fn main() {
             }
         })
         .with_new_window_req_handler(|url: String| {
-            if is_internal(&url) {
-                true
-            } else {
-                open_in_default_browser(&url);
-                false
-            }
+            // Never open a second app window: send it to the default browser.
+            open_in_default_browser(&url);
+            false
         })
+        .with_initialization_script(LINK_SCRIPT)
         .with_ipc_handler(move |req| {
-            if req.body() == "retry" {
+            let body = req.body();
+            if body == "retry" {
                 let _ = ipc_proxy.send_event(UserEvent::Retry);
+            } else if let Some(url) = body.strip_prefix("open:") {
+                open_in_default_browser(url);
             }
         })
         .build(&window)
