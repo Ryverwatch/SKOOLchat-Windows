@@ -12,6 +12,9 @@ path = "src/main.rs"
 tao = "0.30"
 wry = "0.47"
 
+[build-dependencies]
+embed-resource = "2.5"
+
 [profile.release]
 opt-level = 3
 lto = true
