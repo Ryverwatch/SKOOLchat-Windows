@@ -1,55 +1,55 @@
-# SKOOLchat Windows
+# SKOOLchat — Your school. Your conversations.
 
-A small Windows desktop app (Rust + WebView2) that shows https://beyou.figma.site
-inside its own window. It does not open Chrome or Edge.
+SKOOLchat is for chatting with your friends at school. SKOOLchat Windows puts it
+right on your desktop. Open it like any other app, with no browser tabs and no
+address bar, and jump straight into the conversation.
 
-## Requirements
+Website: https://beyou.figma.site
 
-- Windows 10 or 11
-- **WebView2 Runtime** (already included in Windows 11 and most up-to-date Windows 10).
-  If missing: https://developer.microsoft.com/microsoft-edge/webview2/
-- To build: **Rust** (https://rustup.rs) and the **Visual Studio Build Tools**
-  with the "Desktop development with C++" workload (rustup will prompt for this).
+---
 
-## Build
+## Get the app
 
-1. Open the `SKOOLchat-Windows` folder.
-2. Double-click `build.bat`.
-3. Your app appears at `dist\SKOOLchat-Windows.exe`.
+1. Open the **Releases** page of this repository (right side of the main page).
+2. Download **SKOOLchat-Windows.exe** from the newest release.
+3. Double-click it. That's it. There's nothing to install.
 
-Or from a terminal:
+**First time on Windows?** You may see "Windows protected your PC". Click
+**More info**, then **Run anyway**. The app is safe; Windows just doesn't
+recognize new apps yet.
 
-```
-cargo build --release
-```
+**Needs:** Windows 10 or 11 with the Microsoft WebView2 Runtime. It's already
+included on Windows 11 and up-to-date Windows 10. If it's missing, you can get it
+free from https://developer.microsoft.com/microsoft-edge/webview2/
 
-The exe is at `target\release\SKOOLchat-Windows.exe`.
+## What you get
 
-## Install / run
+- Opens full screen, ready to chat
+- Resize it, minimize it, or snap it next to whatever else you're doing
+- Stays signed in, so you don't log in every time
+- Links to other websites open in your normal browser, so your chats stay put
+- A friendly "Try again" screen if your internet drops
 
-The exe is standalone. Copy it anywhere and double-click it. To make a desktop
-shortcut: right-click the exe, choose **Send to > Desktop (create shortcut)**.
+---
 
-## Behavior
+## For developers
 
-- Opens maximized; resize by dragging edges; standard minimize/maximize/close buttons.
-- The site resizes with the window.
-- Login sessions are kept in `%LOCALAPPDATA%\SKOOLchatWindows`.
-- If the site can't be reached at startup, an offline page with a **Try again** button is shown.
+SKOOLchat Windows is a small Rust app that shows the website in a WebView2 window.
 
-## Test checklist
+**Build in the cloud (no setup):** every time you save a change to this repo,
+GitHub Actions builds the app and publishes a new numbered release.
 
-- [ ] App starts with no console window
-- [ ] Opens maximized
-- [ ] Restore down, resize by dragging edges, re-maximize
-- [ ] Site loads, scrolls, links/buttons/text fields work
-- [ ] Disconnect internet, launch: offline page shows; reconnect, click Try again
-- [ ] Close and reopen; you're still signed in (if the site supports it)
+**Build on your own PC:** install Rust (https://rustup.rs) and run
+`cargo build --release`, or double-click `build.bat`.
 
-## Optional improvements (not in the basic build)
+| File | What it does |
+| --- | --- |
+| `src/main.rs` | The app itself |
+| `Cargo.toml` | Dependencies and release settings |
+| `build.rs`, `app.rc`, `icon.ico` | Put the SKOOLchat icon on the exe |
+| `icon_64.rgba` | Window and taskbar icon |
+| `.github/workflows/build.yml` | The cloud build that makes each release |
 
-- **Icon / metadata:** add `app.ico`, add the `winres` crate as a build dependency and a `build.rs`
-  that sets the icon, product name and version.
-- **Installer:** use Inno Setup or WiX to wrap the exe and create a Start Menu/desktop shortcut.
-- **Loading/splash screen:** show a small borderless window or HTML page while the site loads.
+Login data is stored in `%LOCALAPPDATA%\SKOOLchatWindows`.
 
+**Your school. Your conversations.**
