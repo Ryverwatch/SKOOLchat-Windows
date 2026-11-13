@@ -210,88 +210,106 @@ const DEVICE_SCRIPT: &str = r#"
   }
 
   function build() {
-    if (document.getElementById('skc-audio-btn') || !document.body) return;
+    if (document.getElementById('skc-bar') || !document.body) return;
+    var H = 36;
 
-    var btn = document.createElement('button');
-    btn.id = 'skc-audio-btn';
-    btn.title = 'Microphone and speakers';
-    btn.textContent = '\u{1F3A7}';
-    btn.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:2147483647;width:44px;height:44px;' +
-      'border-radius:22px;border:0;background:#111;color:#fff;font-size:20px;cursor:pointer;' +
-      'box-shadow:0 2px 10px rgba(0,0,0,.35);opacity:.85;';
-
-    var panel = document.createElement('div');
-    panel.style.cssText = 'position:fixed;left:12px;bottom:66px;z-index:2147483647;width:290px;' +
-      'padding:14px;border-radius:12px;background:#fff;color:#111;display:none;' +
-      'font:14px Segoe UI,Arial,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.35);';
-    panel.innerHTML =
-      '<div style="font-weight:600;margin-bottom:10px">Audio devices</div>' +
-      '<label style="display:block;margin-bottom:4px">Microphone</label>' +
-      '<select id="skc-mic" style="width:100%;margin-bottom:12px;padding:6px"></select>' +
-      '<label style="display:block;margin-bottom:4px">Speakers</label>' +
-      '<select id="skc-spk" style="width:100%;padding:6px"></select>' +
-      '<div id="skc-note" style="margin-top:10px;font-size:12px;color:#666"></div>';
-
-    document.body.appendChild(panel);
-    document.body.appendChild(btn);
-
-    var micSel = panel.querySelector('#skc-mic');
-    var spkSel = panel.querySelector('#skc-spk');
-    var note = panel.querySelector('#skc-note');
-
-    function fill(sel, list, saved, label) {
-      sel.innerHTML = '';
-      var d = document.createElement('option');
-      d.value = ''; d.textContent = 'System default';
-      sel.appendChild(d);
-      list.forEach(function (dev, i) {
-        var o = document.createElement('option');
-        o.value = dev.deviceId;
-        o.textContent = dev.label || (label + ' ' + (i + 1));
-        sel.appendChild(o);
-      });
-      sel.value = saved;
-      if (sel.value !== saved) sel.value = '';
+    // Top bar with the app name and the two audio buttons.
+    var bar = document.createElement('div');
+    bar.id = 'skc-bar';
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;height:' + H + 'px;z-index:2147483647;' +
+      'display:flex;align-items:center;gap:10px;padding:0 12px;box-sizing:border-box;' +
+      'background:#111;color:#fff;font:600 14px Segoe UI,Arial,sans-serif;';
+    var title = document.createElement('span');
+    title.textContent = 'SKOOLchat';
+    title.style.cssText = 'margin-right:6px;';
+    function mk(text) {
+      var b = document.createElement('button');
+      b.textContent = text;
+      b.style.cssText = 'border:0;border-radius:8px;padding:5px 10px;background:#2b2b2b;color:#fff;' +
+        'font:13px Segoe UI,Arial,sans-serif;cursor:pointer;';
+      return b;
     }
+    var micBtn = mk('\u{1F3A4} Microphone');
+    var spkBtn = mk('\u{1F50A} Speakers');
+    bar.appendChild(title);
+    bar.appendChild(micBtn);
+    bar.appendChild(spkBtn);
+    document.body.appendChild(bar);
 
-    function refresh() {
-      if (!md || !md.enumerateDevices) { note.textContent = 'Device selection is not available.'; return; }
-      md.enumerateDevices().then(function (devs) {
-        fill(micSel, devs.filter(function (d) { return d.kind === 'audioinput'; }), get(MIC), 'Microphone');
-        fill(spkSel, devs.filter(function (d) { return d.kind === 'audiooutput'; }), get(SPK), 'Speaker');
-      });
-    }
+    // Push the page down so the bar doesn't cover it.
+    document.documentElement.style.setProperty('padding-top', H + 'px', 'important');
 
-    function open() {
-      panel.style.display = 'block';
+    var menu = document.createElement('div');
+    menu.style.cssText = 'position:fixed;top:' + (H + 4) + 'px;z-index:2147483647;min-width:260px;' +
+      'max-width:380px;max-height:60vh;overflow:auto;padding:6px;border-radius:10px;background:#fff;' +
+      'color:#111;font:14px Segoe UI,Arial,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.35);display:none;';
+    document.body.appendChild(menu);
+    var current = null;
+
+    function closeMenu() { menu.style.display = 'none'; current = null; }
+
+    function openMenu(kind, anchor) {
+      if (current === kind) { closeMenu(); return; }
+      current = kind;
+      var isMic = kind === 'mic';
+      var key = isMic ? MIC : SPK;
+      menu.style.left = Math.max(4, anchor.getBoundingClientRect().left) + 'px';
+      menu.style.display = 'block';
+      menu.textContent = 'Loading devices...';
+
       // Ask for mic access once so Windows shows the real device names.
       var unlock = realGUM ? realGUM({ audio: true }).then(function (st) {
         st.getTracks().forEach(function (t) { t.stop(); });
-      }).catch(function () {
-        note.textContent = 'Allow microphone access to see device names.';
-      }) : Promise.resolve();
-      unlock.then(refresh);
+      }).catch(function () {}) : Promise.resolve();
+
+      unlock.then(function () {
+        return md && md.enumerateDevices ? md.enumerateDevices() : [];
+      }).then(function (devs) {
+        if (current !== kind) return;
+        var list = devs.filter(function (d) { return d.kind === (isMic ? 'audioinput' : 'audiooutput'); });
+        var saved = get(key);
+        menu.textContent = '';
+        function item(label, id) {
+          var b = document.createElement('button');
+          var on = id === saved;
+          b.textContent = (on ? '\u2713  ' : '\u00A0\u00A0\u00A0\u00A0') + label;
+          b.style.cssText = 'display:block;width:100%;text-align:left;border:0;border-radius:6px;' +
+            'padding:8px 10px;cursor:pointer;font:14px Segoe UI,Arial,sans-serif;color:#111;' +
+            'background:' + (on ? '#e8e8ff' : 'transparent') + ';';
+          b.addEventListener('mouseenter', function () { if (!on) b.style.background = '#f1f1f1'; });
+          b.addEventListener('mouseleave', function () { if (!on) b.style.background = 'transparent'; });
+          b.addEventListener('click', function () {
+            put(key, id);
+            if (!isMic) document.querySelectorAll('audio,video').forEach(applySink);
+            closeMenu();
+          });
+          menu.appendChild(b);
+        }
+        item('System default', '');
+        list.forEach(function (d, i) {
+          item(d.label || ((isMic ? 'Microphone ' : 'Speaker ') + (i + 1)), d.deviceId);
+        });
+        if (!list.length) {
+          var n = document.createElement('div');
+          n.textContent = isMic ? 'No microphones found. Allow microphone access and try again.'
+                                : 'No speaker list available.';
+          n.style.cssText = 'padding:8px 10px;color:#666;font-size:12px;';
+          menu.appendChild(n);
+        }
+        if (isMic) {
+          var t = document.createElement('div');
+          t.textContent = 'Microphone changes apply the next time a call starts.';
+          t.style.cssText = 'padding:6px 10px 2px;color:#666;font-size:12px;';
+          menu.appendChild(t);
+        }
+      });
     }
 
-    btn.addEventListener('click', function () {
-      if (panel.style.display === 'block') panel.style.display = 'none'; else open();
-    });
+    micBtn.addEventListener('click', function () { openMenu('mic', micBtn); });
+    spkBtn.addEventListener('click', function () { openMenu('spk', spkBtn); });
     document.addEventListener('mousedown', function (e) {
-      if (panel.style.display === 'block' && !panel.contains(e.target) && e.target !== btn) {
-        panel.style.display = 'none';
-      }
+      if (current && !menu.contains(e.target) && e.target !== micBtn && e.target !== spkBtn) closeMenu();
     }, true);
-
-    micSel.addEventListener('change', function () {
-      put(MIC, micSel.value);
-      note.textContent = 'Microphone saved. It applies the next time you start a call or recording.';
-    });
-    spkSel.addEventListener('change', function () {
-      put(SPK, spkSel.value);
-      document.querySelectorAll('audio,video').forEach(applySink);
-      note.textContent = 'Speakers saved.';
-    });
-    if (md && md.addEventListener) md.addEventListener('devicechange', refresh);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);
