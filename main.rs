@@ -159,6 +159,146 @@ const LINK_SCRIPT: &str = r#"
 })();
 "#;
 
+
+const DEVICE_SCRIPT: &str = r#"
+(function () {
+  if (window.top !== window) return;
+  var MIC = 'skc_mic', SPK = 'skc_spk';
+  function get(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+  function put(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+  // Use the chosen microphone whenever the site asks for audio input.
+  var md = navigator.mediaDevices;
+  var realGUM = null;
+  if (md && md.getUserMedia) {
+    realGUM = md.getUserMedia.bind(md);
+    md.getUserMedia = function (orig) {
+      var c = orig;
+      try {
+        var id = get(MIC);
+        if (id && c && c.audio) {
+          var a = c.audio === true ? {} : Object.assign({}, c.audio);
+          if (!a.deviceId) a.deviceId = { exact: id };
+          c = Object.assign({}, c, { audio: a });
+        }
+      } catch (e) {}
+      return realGUM(c).catch(function (err) {
+        if (err && err.name === 'OverconstrainedError') return realGUM(orig);
+        throw err;
+      });
+    };
+  }
+
+  // Send sound to the chosen speakers.
+  function applySink(el) {
+    var id = get(SPK);
+    if (id && el && el.setSinkId && el.sinkId !== id) {
+      try { el.setSinkId(id).catch(function () {}); } catch (e) {}
+    }
+  }
+  ['play', 'loadedmetadata'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) { applySink(e.target); }, true);
+  });
+  var AC = window.AudioContext;
+  if (AC && AC.prototype.setSinkId) {
+    var realResume = AC.prototype.resume;
+    AC.prototype.resume = function () {
+      var id = get(SPK);
+      if (id) { try { this.setSinkId(id); } catch (e) {} }
+      return realResume.apply(this, arguments);
+    };
+  }
+
+  function build() {
+    if (document.getElementById('skc-audio-btn') || !document.body) return;
+
+    var btn = document.createElement('button');
+    btn.id = 'skc-audio-btn';
+    btn.title = 'Microphone and speakers';
+    btn.textContent = '\u{1F3A7}';
+    btn.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:2147483647;width:44px;height:44px;' +
+      'border-radius:22px;border:0;background:#111;color:#fff;font-size:20px;cursor:pointer;' +
+      'box-shadow:0 2px 10px rgba(0,0,0,.35);opacity:.85;';
+
+    var panel = document.createElement('div');
+    panel.style.cssText = 'position:fixed;left:12px;bottom:66px;z-index:2147483647;width:290px;' +
+      'padding:14px;border-radius:12px;background:#fff;color:#111;display:none;' +
+      'font:14px Segoe UI,Arial,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.35);';
+    panel.innerHTML =
+      '<div style="font-weight:600;margin-bottom:10px">Audio devices</div>' +
+      '<label style="display:block;margin-bottom:4px">Microphone</label>' +
+      '<select id="skc-mic" style="width:100%;margin-bottom:12px;padding:6px"></select>' +
+      '<label style="display:block;margin-bottom:4px">Speakers</label>' +
+      '<select id="skc-spk" style="width:100%;padding:6px"></select>' +
+      '<div id="skc-note" style="margin-top:10px;font-size:12px;color:#666"></div>';
+
+    document.body.appendChild(panel);
+    document.body.appendChild(btn);
+
+    var micSel = panel.querySelector('#skc-mic');
+    var spkSel = panel.querySelector('#skc-spk');
+    var note = panel.querySelector('#skc-note');
+
+    function fill(sel, list, saved, label) {
+      sel.innerHTML = '';
+      var d = document.createElement('option');
+      d.value = ''; d.textContent = 'System default';
+      sel.appendChild(d);
+      list.forEach(function (dev, i) {
+        var o = document.createElement('option');
+        o.value = dev.deviceId;
+        o.textContent = dev.label || (label + ' ' + (i + 1));
+        sel.appendChild(o);
+      });
+      sel.value = saved;
+      if (sel.value !== saved) sel.value = '';
+    }
+
+    function refresh() {
+      if (!md || !md.enumerateDevices) { note.textContent = 'Device selection is not available.'; return; }
+      md.enumerateDevices().then(function (devs) {
+        fill(micSel, devs.filter(function (d) { return d.kind === 'audioinput'; }), get(MIC), 'Microphone');
+        fill(spkSel, devs.filter(function (d) { return d.kind === 'audiooutput'; }), get(SPK), 'Speaker');
+      });
+    }
+
+    function open() {
+      panel.style.display = 'block';
+      // Ask for mic access once so Windows shows the real device names.
+      var unlock = realGUM ? realGUM({ audio: true }).then(function (st) {
+        st.getTracks().forEach(function (t) { t.stop(); });
+      }).catch(function () {
+        note.textContent = 'Allow microphone access to see device names.';
+      }) : Promise.resolve();
+      unlock.then(refresh);
+    }
+
+    btn.addEventListener('click', function () {
+      if (panel.style.display === 'block') panel.style.display = 'none'; else open();
+    });
+    document.addEventListener('mousedown', function (e) {
+      if (panel.style.display === 'block' && !panel.contains(e.target) && e.target !== btn) {
+        panel.style.display = 'none';
+      }
+    }, true);
+
+    micSel.addEventListener('change', function () {
+      put(MIC, micSel.value);
+      note.textContent = 'Microphone saved. It applies the next time you start a call or recording.';
+    });
+    spkSel.addEventListener('change', function () {
+      put(SPK, spkSel.value);
+      document.querySelectorAll('audio,video').forEach(applySink);
+      note.textContent = 'Speakers saved.';
+    });
+    if (md && md.addEventListener) md.addEventListener('devicechange', refresh);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);
+  else build();
+})();
+"#;
+
 /// Check the connection in the background; show the offline page only if it fails.
 fn check_in_background(proxy: tao::event_loop::EventLoopProxy<UserEvent>) {
     std::thread::spawn(move || {
@@ -204,6 +344,7 @@ fn main() {
             false
         })
         .with_initialization_script(LINK_SCRIPT)
+        .with_initialization_script(DEVICE_SCRIPT)
         .with_ipc_handler(move |req| {
             let body = req.body();
             if body == "retry" {
