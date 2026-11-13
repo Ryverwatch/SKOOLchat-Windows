@@ -12,6 +12,7 @@ jobs:
     runs-on: windows-latest
     env:
       RUSTFLAGS: -C target-feature=+crt-static
+      BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
 
@@ -23,5 +24,7 @@ jobs:
         with:
           tag_name: latest
           name: SKOOLchat Windows (latest)
+          make_latest: true
+          overwrite_files: true
           body: Download SKOOLchat-Windows.exe below and double-click it to run.
           files: target/release/SKOOLchat-Windows.exe
