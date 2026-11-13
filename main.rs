@@ -20,6 +20,7 @@ const SITE_HOST: &str = "beyou.figma.site:443";
 enum UserEvent {
     Retry,
     ShowOffline,
+    WinCmd(String),
 }
 
 const OFFLINE_HTML: &str = r#"<!doctype html>
@@ -211,7 +212,7 @@ const DEVICE_SCRIPT: &str = r#"
 
   function build() {
     if (document.getElementById('skc-bar') || !document.body) return;
-    var H = 36;
+    var H = 34;
 
     // Top bar with the app name and the two audio buttons.
     var bar = document.createElement('div');
@@ -220,7 +221,7 @@ const DEVICE_SCRIPT: &str = r#"
       'display:flex;align-items:center;gap:10px;padding:0 12px;box-sizing:border-box;' +
       'background:#111;color:#fff;font:600 14px Segoe UI,Arial,sans-serif;';
     var title = document.createElement('span');
-    title.textContent = 'SKOOLchat';
+    title.textContent = 'SKOOLchat Windows';
     title.style.cssText = 'margin-right:6px;';
     function mk(text) {
       var b = document.createElement('button');
@@ -234,7 +235,55 @@ const DEVICE_SCRIPT: &str = r#"
     bar.appendChild(title);
     bar.appendChild(micBtn);
     bar.appendChild(spkBtn);
+
+    // Window controls (the native title bar is hidden).
+    function send(m) { try { window.ipc.postMessage(m); } catch (e) {} }
+    var ctl = document.createElement('div');
+    ctl.style.cssText = 'margin-left:auto;margin-right:-12px;display:flex;height:100%;';
+    function cbtn(text, cmd, hover) {
+      var b = document.createElement('button');
+      b.textContent = text;
+      b.style.cssText = 'width:46px;height:100%;border:0;background:transparent;color:#fff;' +
+        'font:14px Segoe UI,Arial,sans-serif;cursor:pointer;';
+      b.addEventListener('mouseenter', function () { b.style.background = hover; });
+      b.addEventListener('mouseleave', function () { b.style.background = 'transparent'; });
+      b.addEventListener('click', function () { send('win:' + cmd); });
+      ctl.appendChild(b);
+    }
+    cbtn('–', 'min', '#333');
+    cbtn('□', 'max', '#333');
+    cbtn('✕', 'close', '#c42b1c');
+    bar.appendChild(ctl);
+
+    // Drag the window by the bar, double-click to maximize/restore.
+    bar.addEventListener('mousedown', function (e) {
+      if (e.button === 0 && (e.target === bar || e.target === title)) send('win:drag');
+    });
+    bar.addEventListener('dblclick', function (e) {
+      if (e.target === bar || e.target === title) send('win:max');
+    });
     document.body.appendChild(bar);
+
+    // Invisible edge handles so the window can still be resized.
+    function isMax() {
+      return window.innerWidth >= screen.availWidth - 2 && window.innerHeight >= screen.availHeight - 2;
+    }
+    [['n', 'top:0;left:8px;right:8px;height:5px;cursor:ns-resize'],
+     ['s', 'bottom:0;left:8px;right:8px;height:5px;cursor:ns-resize'],
+     ['w', 'left:0;top:8px;bottom:8px;width:5px;cursor:ew-resize'],
+     ['e', 'right:0;top:8px;bottom:8px;width:5px;cursor:ew-resize'],
+     ['nw', 'top:0;left:0;width:8px;height:8px;cursor:nwse-resize'],
+     ['se', 'bottom:0;right:0;width:8px;height:8px;cursor:nwse-resize'],
+     ['ne', 'top:0;right:0;width:8px;height:8px;cursor:nesw-resize'],
+     ['sw', 'bottom:0;left:0;width:8px;height:8px;cursor:nesw-resize']
+    ].forEach(function (h) {
+      var d = document.createElement('div');
+      d.style.cssText = 'position:fixed;z-index:2147483647;' + h[1];
+      d.addEventListener('mousedown', function (e) {
+        if (e.button === 0 && !isMax()) { e.preventDefault(); send('win:resize:' + h[0]); }
+      });
+      document.body.appendChild(d);
+    });
 
     // Push the page down so the bar doesn't cover it.
     document.documentElement.style.setProperty('padding-top', H + 'px', 'important');
@@ -317,6 +366,22 @@ const DEVICE_SCRIPT: &str = r#"
 })();
 "#;
 
+/// Map the short names sent by the page to window resize directions.
+fn resize_dir(s: &str) -> Option<tao::window::ResizeDirection> {
+    use tao::window::ResizeDirection as R;
+    Some(match s {
+        "n" => R::North,
+        "s" => R::South,
+        "e" => R::East,
+        "w" => R::West,
+        "ne" => R::NorthEast,
+        "nw" => R::NorthWest,
+        "se" => R::SouthEast,
+        "sw" => R::SouthWest,
+        _ => return None,
+    })
+}
+
 /// Check the connection in the background; show the offline page only if it fails.
 fn check_in_background(proxy: tao::event_loop::EventLoopProxy<UserEvent>) {
     std::thread::spawn(move || {
@@ -337,6 +402,7 @@ fn main() {
         .with_maximized(true)
         .with_resizable(true)
         .with_visible(false)
+        .with_decorations(false)
         .with_window_icon(window_icon())
         .with_min_inner_size(tao::dpi::LogicalSize::new(480.0, 360.0))
         .build(&event_loop)
@@ -369,6 +435,8 @@ fn main() {
                 let _ = ipc_proxy.send_event(UserEvent::Retry);
             } else if let Some(url) = body.strip_prefix("open:") {
                 open_in_default_browser(url);
+            } else if let Some(cmd) = body.strip_prefix("win:") {
+                let _ = ipc_proxy.send_event(UserEvent::WinCmd(cmd.to_string()));
             }
         })
         .build(&window)
@@ -391,6 +459,20 @@ fn main() {
                 let _ = webview.load_url(SITE_URL);
                 check_in_background(proxy.clone());
             }
+            Event::UserEvent(UserEvent::WinCmd(cmd)) => match cmd.as_str() {
+                "min" => window.set_minimized(true),
+                "max" => window.set_maximized(!window.is_maximized()),
+                "close" => *control_flow = ControlFlow::Exit,
+                "drag" => {
+                    let _ = window.drag_window();
+                }
+                c if c.starts_with("resize:") => {
+                    if let Some(d) = resize_dir(&c[7..]) {
+                        let _ = window.drag_resize_window(d);
+                    }
+                }
+                _ => {}
+            },
             Event::UserEvent(UserEvent::ShowOffline) => {
                 let _ = webview.load_html(OFFLINE_HTML);
             }
