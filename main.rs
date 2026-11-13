@@ -397,8 +397,15 @@ fn main() {
     let ipc_proxy = proxy.clone();
 
     // Start hidden so the user never sees an empty white window while things load.
+    // The build number is stamped in by the cloud build so you can tell which version is running.
+    let title = format!(
+        "{} (build {})",
+        APP_NAME,
+        option_env!("BUILD_NUMBER").unwrap_or("local")
+    );
+
     let window = WindowBuilder::new()
-        .with_title(APP_NAME)
+        .with_title(title)
         .with_maximized(true)
         .with_resizable(true)
         .with_visible(false)
